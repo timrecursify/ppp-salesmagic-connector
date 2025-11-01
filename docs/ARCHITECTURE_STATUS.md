@@ -109,15 +109,25 @@ Production tracking pixel system deployed on Cloudflare Workers with direct Pipe
 - Async delivery (non-blocking)
 - Timeout protection in scheduled worker (30s max per sync operation)
 
-**Field Mapping**:
+**Field Mapping** (Updated January 27, 2025):
 - Standard fields: name, email, first_name, last_name (search only, not updated)
 - UTM parameters: utm_source, utm_medium, utm_campaign, utm_content, utm_term
 - Click IDs: gclid, fbclid, msclkid, ttclid, twclid, li_fat_id, sc_click_id
 - Tracking IDs: event_id, visitor_id, session_id, pixel_id, project_id
 - Page data: page_url, page_title, referrer_url
-- Geographic: country, region, city
+- Geographic: country, region, city, location (combined formatted string)
 - Ad data: campaign_region, ad_group, ad_id, search_query
 - Device/Browser: user_agent, screen_resolution, device_type, operating_system
+- **New fields**:
+  - `last_visited_on`: Human-readable date format (e.g., "January 27, 2025 at 2:30 PM")
+  - `visited_pages`: Comma-separated list of all unique page URLs visited
+  - `session_duration`: Formatted duration (e.g., "15 minutes" or "1h 23m")
+  - `ip_address`: Visitor IP address from tracking event
+
+**Field Mapping Fixes** (January 27, 2025):
+- Fixed duplicate field IDs that were causing data to be written to wrong fields
+- Verified all field IDs against Pipedrive API
+- Corrected mappings for: project_id, page_url, page_title, session_id, ad_group, ad_id, msclkid
 
 **Delayed Sync**:
 - Form submissions stored in KV with 7-minute delay

@@ -14,6 +14,33 @@
 
 ### Recent Updates
 
+**January 27, 2025 - Pipedrive Field Mapping Fixes & Data Enhancement**
+- ✅ Fixed duplicate/incorrect Pipedrive field IDs:
+  - `project_id`: Fixed incorrect field ID (was using Page URL ID)
+  - `page_url`: Fixed incorrect field ID (was using Page Title ID)
+  - `page_title`: Fixed incorrect field ID (was using Ad_Group ID)
+  - `session_id`: Fixed incorrect field ID (was using Initial Landing Page ID)
+  - `ad_group`: Fixed duplicate field ID (was same as Device Type)
+  - `ad_id`: Fixed duplicate field ID (was same as Operating System)
+  - `msclkid`: Fixed duplicate field ID (was same as Screen Resolution)
+- ✅ Added missing Pipedrive fields:
+  - `last_visited_on`: Fetches visitor.last_seen and formats as human-readable date
+  - `visited_pages`: Aggregates all unique page URLs for visitor (comma-separated)
+  - `session_duration`: Calculates from session started_at and last_activity
+  - `ip_address`: Uses IP from event record
+  - `location`: Combines city, region, country into formatted string
+- ✅ Created data formatting utilities (`src/utils/pipedriveFormatters.js`):
+  - Date formatting: "January 27, 2025 at 2:30 PM"
+  - Duration formatting: "15 minutes" or "1h 23m"
+  - Location formatting: "City, Region, Country"
+- ✅ Enhanced pipedriveSync.handler.js to fetch and format additional data:
+  - Queries visitor table for last_visited_on
+  - Queries session table for duration calculation
+  - Aggregates visited pages from tracking_events
+  - Formats all data appropriately before Pipedrive sync
+- ✅ Verified all field mappings against Pipedrive API
+- ✅ Fixed Page URL and Page Title data quality issues
+
 **January 2025 - Production Hardening & Cleanup Session**
 - ✅ Production logging configured (LOG_LEVEL = "warn")
 - ✅ Console debug logging removed from production code
@@ -270,5 +297,5 @@ database_id = "777a0ed8-e3ee-42fc-ad9b-12f7964c1c0b"
 ## Next Review
 
 **Next Status Review**: After implementing prevention recommendations  
-**Last Updated**: January 2025
+**Last Updated**: January 27, 2025
 

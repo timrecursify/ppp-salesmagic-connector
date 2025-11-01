@@ -6,6 +6,7 @@
 import { parseFormData } from './tracking.handlers.js';
 import { scheduleDelayedSync } from '../services/pipedrive-delayed.service.js';
 import { extractBrowserData, extractDeviceData } from '../utils/browser.js';
+import { formatDateForPipedrive, formatSessionDuration, formatLocation } from '../utils/pipedriveFormatters.js';
 
 /**
  * Prepare and schedule Pipedrive sync for form submission
@@ -27,7 +28,8 @@ export async function prepareAndSchedulePipedriveSync(env, logger, {
   utmData,
   formData,
   screenData,
-  eventType
+  eventType,
+  clientIP
 }) {
   if (!formData && eventType !== 'form_submit') {
     return null;
@@ -64,7 +66,7 @@ export async function prepareAndSchedulePipedriveSync(env, logger, {
   let eventRecord = null;
   try {
     eventRecord = await env.DB.prepare(
-      'SELECT gclid, fbclid, msclkid, ttclid, twclid, li_fat_id, sc_click_id, utm_content, utm_term, campaign_region, ad_group, ad_id, search_query FROM tracking_events WHERE id = ?'
+      'SELECT gclid, fbclid, msclkid, ttclid, twclid, li_fat_id, sc_click_id, utm_content, utm_term, campaign_region, ad_group, ad_id, search_query, ip_address FROM tracking_events WHERE id = ?'
     ).bind(eventId).first();
   } catch (dbError) {
     await logger.warn('Failed to fetch event record for Pipedrive sync', {
@@ -73,6 +75,63 @@ export async function prepareAndSchedulePipedriveSync(env, logger, {
     }).catch(() => {});
     // Continue with null eventRecord - will use utmData fallback
   }
+
+  // Fetch visitor data for last_visited_on
+  let visitorRecord = null;
+  try {
+    visitorRecord = await env.DB.prepare(
+      'SELECT last_seen FROM visitors WHERE id = ?'
+    ).bind(visitorId).first();
+  } catch (dbError) {
+    await logger.warn('Failed to fetch visitor record for Pipedrive sync', {
+      visitor_id: visitorId,
+      error: dbError.message
+    }).catch(() => {});
+  }
+
+  // Fetch session data for session_duration
+  let sessionRecord = null;
+  try {
+    sessionRecord = await env.DB.prepare(
+      'SELECT started_at, last_activity FROM sessions WHERE id = ?'
+    ).bind(sessionId).first();
+  } catch (dbError) {
+    await logger.warn('Failed to fetch session record for Pipedrive sync', {
+      session_id: sessionId,
+      error: dbError.message
+    }).catch(() => {});
+  }
+
+  // Fetch visited pages for visitor (aggregate all unique page URLs)
+  let visitedPages = null;
+  try {
+    const pagesResult = await env.DB.prepare(
+      'SELECT DISTINCT page_url FROM tracking_events WHERE visitor_id = ? AND page_url IS NOT NULL ORDER BY timestamp DESC LIMIT 50'
+    ).bind(visitorId).all();
+    
+    if (pagesResult.results && pagesResult.results.length > 0) {
+      visitedPages = pagesResult.results.map(row => row.page_url).filter(Boolean).join(', ');
+    }
+  } catch (dbError) {
+    await logger.warn('Failed to fetch visited pages for Pipedrive sync', {
+      visitor_id: visitorId,
+      error: dbError.message
+    }).catch(() => {});
+  }
+
+  // Format additional data
+  const lastVisitedOn = visitorRecord?.last_seen 
+    ? formatDateForPipedrive(visitorRecord.last_seen) 
+    : null;
+  
+  const sessionDuration = sessionRecord?.started_at && sessionRecord?.last_activity
+    ? formatSessionDuration(sessionRecord.started_at, sessionRecord.last_activity)
+    : null;
+  
+  const location = formatLocation(city, region, country);
+  
+  // Use IP from event record if available, otherwise use clientIP parameter
+  const ipAddress = eventRecord?.ip_address || clientIP || null;
 
   // Prepare tracking data for Pipedrive (use columns directly, not JSON)
   const pipedriveData = {
@@ -114,6 +173,7 @@ export async function prepareAndSchedulePipedriveSync(env, logger, {
     country: country || null,
     region: region || null,
     city: city || null,
+    location: location,
     
     // Ad data (from columns)
     campaign_region: eventRecord?.campaign_region || utmData.campaign_region || null,
@@ -128,7 +188,13 @@ export async function prepareAndSchedulePipedriveSync(env, logger, {
       : null,
     device_type: deviceDataParsed.type || null,
     operating_system: browserDataParsed.os || null,
-    event_type: eventType
+    event_type: eventType,
+    
+    // New fields
+    last_visited_on: lastVisitedOn,
+    visited_pages: visitedPages,
+    session_duration: sessionDuration,
+    ip_address: ipAddress
   };
 
   // Schedule delayed Pipedrive sync (10 minutes after form submission)

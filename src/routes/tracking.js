@@ -191,7 +191,8 @@ app.post('/track', validateTrackingRequest, async (c) => {
         utmData,
         formData: finalFormData,
         screenData: validatedData.screen,
-        eventType: finalEventType
+        eventType: finalEventType,
+        clientIP
       });
       
       if (c.env.executionCtx) {

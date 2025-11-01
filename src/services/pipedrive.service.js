@@ -4,7 +4,7 @@
  */
 
 import { createLogger } from '../utils/workerLogger.js';
-import { fetchWithRetry, fetchJSONWithRetry } from '../utils/fetchWithRetry.js';
+import { fetchJSONWithRetry } from '../utils/fetchWithRetry.js';
 import { getPipedriveCircuitBreaker } from '../utils/circuitBreaker.js';
 
 // Pipedrive Person field mappings (custom field keys)
@@ -25,29 +25,30 @@ const FIELD_MAPPING = {
   // Click IDs
   gclid: '9aad4a1b8a9bcd93dc31ec8c4efea5f2d3123c58', // GCLID
   fbclid: '6d9fa7cac69ac961197fe160a6e0303cc103db3c', // Facebook Click ID
-  msclkid: '783ba423096fe12674cee2db61812f65413d3ced', // Microsoft Click ID
+  msclkid: 'f97bbfff4e3665f129094b276f7c48dd3715bcdf', // Microsoft Click ID
   ttclid: 'd8e9e151f85917536c0867947a0ad9e1c9c5fc8d', // Tik Tok Click ID
   
   // Tracking IDs
   event_id: '8cf49560ecaa68f90d3e4e103a8267ca5d4dc621', // Event ID
-  session_id: 'cc72846a249d8224a22d3273887dac71137e01c1', // Session ID
+  session_id: 'b0067e0f4c9d31fe12a9067ea0c2f728079ada9e', // Session ID
   visitor_id: '38cf8a494a313dddb37b05eb5230c14470a71208', // Visitor ID
   pixel_id: '5365d081bd139123cdac311b49c9b207f6a2ff7b', // Pixel ID
-  project_id: 'a5fda325cf12108a3156d8572d3e5df1b1157c8f', // Project ID
+  project_id: '7aea416f749df1c9b88bbf3a75d0377475b771e4', // Project ID
   
   // Page Data
-  page_url: '82da01c675c40d01b47c044e88a43a2b840172b7', // Page URL
-  page_title: 'e94db8ffea0cdb798171a5011f7e67e56d111941', // Page Title
+  page_url: 'a5fda325cf12108a3156d8572d3e5df1b1157c8f', // Page URL
+  page_title: '82da01c675c40d01b47c044e88a43a2b840172b7', // Page Title
   referrer_url: 'c588a1f5f600988d32bb9acc23365423d39fba2f', // Referrer URL
   
   // Geographic
   country: 'e00b50a52507ef7229b956dc1997b01eef506db7', // Country
   region: '918f46e1e4c8ecdae4b300ac8fdc38b2ebf52dab', // Region
   city: 'c068cb8babf4d594f68f14bda5093f51c45d6527', // City
+  location: 'af8fe5c5442ad675f6f0bffa123fa15f92794842', // Location (combined city/region/country)
   
   // Ad Data
-  ad_group: 'a15bd6127ea55f527e904922e5185ad1fceb8367', // Ad_Group
-  ad_id: 'c6af69e1287659f160d38c5194221e55081d7cec', // Ad_ID
+  ad_group: 'e94db8ffea0cdb798171a5011f7e67e56d111941', // Ad_Group
+  ad_id: 'be273aec0e4263097e79c469b84512667e20ccff', // Ad_ID
   search_query: '3fbc29539c444f99220a09890ad579f7501e1ffe', // Search Query
   
   // Device/Browser
@@ -55,7 +56,13 @@ const FIELD_MAPPING = {
   screen_resolution: '783ba423096fe12674cee2db61812f65413d3ced', // Screen Resolution
   device_type: 'a15bd6127ea55f527e904922e5185ad1fceb8367', // Device Type
   operating_system: 'c6af69e1287659f160d38c5194221e55081d7cec', // Operating System
-  event_type: '1bcb4f1e92d4add82f1e71254913bde0063b99b0' // Event Type
+  event_type: '1bcb4f1e92d4add82f1e71254913bde0063b99b0', // Event Type
+  
+  // New fields
+  last_visited_on: '937a29aadcfc5a4c8d019712d64c2de19df1d0fa', // Last Visited On
+  visited_pages: '1eeecc0ef962b8b79d5da5c0fea6148c86d97380', // Visited Web Pages
+  session_duration: 'cff9425cb26b594ad315d1afe09308c1766d42aa', // Session Duration
+  ip_address: '511d65babf591015ec6be0b58434327933c6f703' // IP Address
 };
 
 /**
