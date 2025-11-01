@@ -1,0 +1,92 @@
+name = "ppp-pixel"
+main = "src/index.js"
+compatibility_date = "2024-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Logs configuration (synced with dashboard)
+[observability]
+enabled = true
+head_sampling_rate = 1.0  # 100% sampling rate
+
+# Worker configuration
+[env.production]
+name = "ppp-pixel"
+
+# Workers Logs for production environment
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1.0  # 100% sampling rate
+
+# Durable Objects used for rate limiting
+
+# D1 Database binding
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "ppp-tracking-db"
+database_id = "777a0ed8-e3ee-42fc-ad9b-12f7964c1c0b"
+
+# KV namespace for caching and sessions
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "1e11be115bd941de900bacedb9439296"
+preview_id = "abe35e351dfa4216a4a1bb3de8093de5"
+
+# Durable Objects for rate limiting
+[env.production.durable_objects]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" }
+]
+
+# Durable Objects for rate limiting (global)
+[durable_objects]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" }
+]
+
+# Durable Objects migrations
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "RateLimiter" ]
+
+# Environment variables
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "warn"
+PIPEDRIVE_API_KEY = "2bd2ab77ade376a3c1c64ae62f748feb5c8cf591"
+ARCHIVE_ENDPOINT = "https://pixel.salesmagic.us/api/archive"
+ARCHIVE_DAYS = "180"
+
+# Development environment
+[env.development]
+name = "ppp-pixel-dev"
+
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "ppp-tracking-db"
+database_id = "777a0ed8-e3ee-42fc-ad9b-12f7964c1c0b"
+
+[[env.development.kv_namespaces]]
+binding = "CACHE"
+id = "1e11be115bd941de900bacedb9439296"
+preview_id = "abe35e351dfa4216a4a1bb3de8093de5"
+
+[env.development.durable_objects]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" }
+]
+
+[env.development.vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+PIPEDRIVE_API_KEY = "2bd2ab77ade376a3c1c64ae62f748feb5c8cf591"
+ARCHIVE_ENDPOINT = "http://localhost:3000/api/archive"
+ARCHIVE_DAYS = "180"
+
+# Routes for custom domain (connected via Cloudflare)
+[[env.production.routes]]
+pattern = "pixel.salesmagic.us/*"
+zone_name = "salesmagic.us"
+
+# Scheduled tasks for data archival and cleanup
+[triggers]
+crons = ["*/5 * * * *"]  # Run every 5 minutes for delayed Pipedrive syncs 
