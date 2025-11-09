@@ -31,10 +31,11 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
   let lastResponse = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let timeoutId = null;
     try {
       // Create abort controller for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      timeoutId = setTimeout(() => controller.abort(), timeout);
 
       try {
         const response = await fetch(url, {
@@ -42,7 +43,10 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
           signal: controller.signal
         });
 
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
 
         // Check if response is successful (2xx status)
         if (response.ok) {
@@ -66,7 +70,10 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
         await new Promise(resolve => setTimeout(resolve, delay));
 
       } catch (fetchError) {
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
 
         // Check if error is due to abort (timeout)
         if (fetchError.name === 'AbortError') {
@@ -89,11 +96,11 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
         const delay = initialDelay * Math.pow(2, attempt);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
-
-    } catch (error) {
-      lastError = error;
-      if (attempt === maxRetries) {
-        throw error;
+    } finally {
+      // Ensure timeout is always cleared
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
       }
     }
   }

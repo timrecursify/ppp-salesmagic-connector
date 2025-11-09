@@ -82,8 +82,8 @@ CREATE TABLE tracking_events (
     viewport_data TEXT,
     timestamp TEXT DEFAULT (datetime('now')),
     created_at TEXT DEFAULT (datetime('now')),
-    zapier_sent INTEGER DEFAULT 0,
-    zapier_sent_at TEXT,
+    zapier_sent INTEGER DEFAULT 0, -- DEPRECATED: Legacy Zapier integration, no longer used
+    zapier_sent_at TEXT, -- DEPRECATED: Legacy Zapier integration, no longer used
     archived INTEGER DEFAULT 0,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (pixel_id) REFERENCES pixels(id),
@@ -97,7 +97,7 @@ CREATE INDEX idx_tracking_events_pixel_id ON tracking_events(pixel_id);
 CREATE INDEX idx_tracking_events_visitor_id ON tracking_events(visitor_id);
 CREATE INDEX idx_tracking_events_session_id ON tracking_events(session_id);
 CREATE INDEX idx_tracking_events_timestamp ON tracking_events(timestamp);
-CREATE INDEX idx_tracking_events_zapier_sent ON tracking_events(zapier_sent) WHERE zapier_sent = 0;
+CREATE INDEX idx_tracking_events_zapier_sent ON tracking_events(zapier_sent) WHERE zapier_sent = 0; -- DEPRECATED: Legacy Zapier integration
 CREATE INDEX idx_tracking_events_archived ON tracking_events(archived) WHERE archived = 0;
 
 CREATE INDEX idx_visitors_cookie ON visitors(visitor_cookie);

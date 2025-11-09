@@ -8,7 +8,7 @@ INSERT OR IGNORE INTO projects (id, name, webhook_url, configuration) VALUES
 (
     'ppp-' || lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))),
     'PPP', 
-    'https://hooks.zapier.com/hooks/catch/1243246/uo53jk3/', 
+    NULL, -- DEPRECATED: Legacy Zapier webhook URL, replaced with direct Pipedrive API integration 
     '{"description": "Precious Pics Pro tracking project", "retention_days": 180, "auto_cleanup": true, "privacy_settings": {"anonymize_ip": false, "respect_dnt": true, "cookie_consent_required": false}}'
 );
 

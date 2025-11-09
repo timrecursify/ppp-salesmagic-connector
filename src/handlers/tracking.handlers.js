@@ -5,17 +5,26 @@
 
 /**
  * Extract form data from URL parameters
- * ONLY extracts: first_name, last_name, email (UTM params handled separately)
+ * Extracts all non-UTM parameters as form data (maintains backward compatibility)
  */
 export function extractFormDataFromURL(url) {
   if (!url) return null;
   
-  // ONLY allow these fields - nothing else!
-  const allowedFields = {
-    'first_name': ['fname', 'firstname', 'first_name', 'first-name', 'f_name'],
-    'last_name': ['lname', 'lastname', 'last_name', 'last-name', 'l_name'],
-    'email': ['email', 'mail', 'e-mail', 'email_address', 'emailaddress']
-  };
+  // Normalize field names for consistency
+  function normalizeFieldName(name) {
+    if (!name) return null;
+    return name.toLowerCase().trim().replace(/-/g, '_');
+  }
+  
+  // Check if field name indicates email (for validation)
+  function isEmailField(name) {
+    if (!name) return false;
+    const normalized = name.toLowerCase();
+    return normalized.indexOf('email') !== -1 || 
+           normalized.indexOf('mail') !== -1 ||
+           normalized === 'e-mail' ||
+           normalized === 'e_mail';
+  }
   
   const trackingParams = [
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
@@ -27,24 +36,45 @@ export function extractFormDataFromURL(url) {
   try {
     const urlObj = new URL(url);
     const formData = {};
+    let hasEmail = false;
     
     for (const [key, value] of urlObj.searchParams.entries()) {
-      const normalizedKey = key.toLowerCase().trim();
+      const normalizedKey = normalizeFieldName(key);
       
       // Skip tracking parameters (handled separately)
-      if (trackingParams.includes(normalizedKey)) continue;
+      if (!normalizedKey || trackingParams.includes(normalizedKey)) continue;
       
-      // Only extract allowed fields
-      for (const [fieldKey, aliases] of Object.entries(allowedFields)) {
-        if (aliases.includes(normalizedKey) && value && value.trim()) {
+      // Skip empty values
+      if (!value || !value.trim()) continue;
+      
+      // Normalize field name and store
+      const cleanKey = normalizedKey.replace(/[<>'"]/g, '').trim();
+      if (!cleanKey) continue;
+      
+      // Special handling for common field name variations
+      let fieldKey = cleanKey;
+      if (cleanKey === 'first-name' || cleanKey === 'firstname' || cleanKey === 'fname' || cleanKey === 'f_name') {
+        fieldKey = 'first_name';
+      } else if (cleanKey === 'last-name' || cleanKey === 'lastname' || cleanKey === 'lname' || cleanKey === 'l_name') {
+        fieldKey = 'last_name';
+      } else if (isEmailField(cleanKey)) {
+        fieldKey = 'email';
+        hasEmail = true;
+      }
+      
           formData[fieldKey] = decodeURIComponent(value.trim());
-          break;
-        }
+    }
+    
+    // Normalize email field if present
+    for (const key in formData) {
+      if (isEmailField(key) && key !== 'email') {
+        formData.email = formData[key];
+        hasEmail = true;
       }
     }
     
     // Only return if we have at least email (required for Pipedrive search)
-    return formData.email && Object.keys(formData).length > 0 ? JSON.stringify(formData) : null;
+    return hasEmail && formData.email && Object.keys(formData).length > 0 ? JSON.stringify(formData) : null;
   } catch (e) {
     return null;
   }

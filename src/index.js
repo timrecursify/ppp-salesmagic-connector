@@ -177,25 +177,46 @@ export default {
   // Scheduled handler for cleanup and archival
   async scheduled(controller, env, ctx) {
     const logger = createLogger(env);
-    await logger.info('Running scheduled tasks...');
+    const startTime = Date.now();
+    
+    await logger.info('Scheduled worker execution started', {
+      component: 'scheduled-worker',
+      cron: controller.cron,
+      scheduled_time: new Date(controller.scheduledTime).toISOString(),
+      execution_time: new Date().toISOString(),
+      trigger_type: 'cron'
+    });
     
     // Process delayed Pipedrive syncs first
     try {
       const { processDelayedSyncs } = await import('./services/pipedrive-delayed.service.js');
       const syncResult = await processDelayedSyncs(env);
-      if (syncResult.processed > 0 || syncResult.failed > 0) {
-        await logger.info('Processed delayed Pipedrive syncs', syncResult);
-      }
+      
+      // Always log result, even if nothing was processed
+      await logger.info('Scheduled worker - delayed Pipedrive syncs processed', {
+        component: 'scheduled-worker',
+        processed: syncResult.processed,
+        failed: syncResult.failed,
+        total: syncResult.processed + syncResult.failed,
+        duration_ms: Date.now() - startTime,
+        success_rate: syncResult.processed + syncResult.failed > 0 
+          ? `${Math.round((syncResult.processed / (syncResult.processed + syncResult.failed)) * 100)}%`
+          : 'N/A'
+      });
     } catch (error) {
       await logger.error('Failed to process delayed syncs', {
-        error: error.message
+        component: 'scheduled-worker',
+        error: error.message,
+        stack: error.stack,
+        duration_ms: Date.now() - startTime
       });
     }
     
     // Cleanup and archival
     try {
       // Archive old data (older than ARCHIVE_DAYS)
-      const archiveDays = parseInt(env.ARCHIVE_DAYS || '180');
+      const rawArchiveDays = parseInt(env.ARCHIVE_DAYS || '180');
+      const archiveDays = Math.min(Math.max(isNaN(rawArchiveDays) ? 180 : rawArchiveDays, 1), 365);
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - archiveDays);
       
@@ -221,7 +242,7 @@ export default {
           
           if (archiveData.results.length > 0) {
             try {
-              await fetchWithRetry(
+              const archiveResponse = await fetchWithRetry(
                 env.ARCHIVE_ENDPOINT,
                 {
                   method: 'POST',
@@ -244,11 +265,34 @@ export default {
                 }
               );
               
-              // Delete successfully archived events
-              await env.DB.prepare(`
-                DELETE FROM tracking_events 
-                WHERE archived = 1
-              `).run();
+              // Only delete after confirming archive succeeded
+              if (archiveResponse.ok) {
+                try {
+                  const archiveResult = await archiveResponse.json();
+                  if (archiveResult.success !== false) {
+                    // Delete successfully archived events
+                    await env.DB.prepare(`
+                      DELETE FROM tracking_events 
+                      WHERE archived = 1
+                    `).run();
+                  } else {
+                    await logger.warn('Archive endpoint returned failure, not deleting events', {
+                      archive_response: archiveResult
+                    });
+                  }
+                } catch (parseError) {
+                  await logger.error('Failed to parse archive response', {
+                    error: parseError.message,
+                    status: archiveResponse.status
+                  });
+                  // Don't delete if we can't verify success
+                }
+              } else {
+                await logger.error('Archive endpoint returned non-OK status, not deleting events', {
+                  status: archiveResponse.status,
+                  statusText: archiveResponse.statusText
+                });
+              }
               
               await logger.info(`Archived and deleted ${archiveData.results.length} events`);
             } catch (archiveError) {

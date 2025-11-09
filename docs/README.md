@@ -46,15 +46,16 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 ### Component Architecture
 
 **Client-Side (Browser)**
-- `pixel.js` v2.3.1 - Tracking script
+- `pixel.js` v2.4.0 - Tracking script
   - Page-specific duplicate prevention
   - Complete UTM and click ID capture
-  - Form data capture (first_name, last_name, email only)
+  - Form data capture (ALL form fields with normalization)
   - Viewport/screen data capture
   - Error handling with HTTP status checking
+  - Optional newsletter signup via captured form data or URL parameters
 
 **Server-Side (Cloudflare Worker)**
-- Services Layer: utm.service.js, visitor.service.js, session.service.js, pipedrive.service.js, pipedrive-delayed.service.js
+- Services Layer: utm.service.js, visitor.service.js, session.service.js, pipedrive.service.js, pipedrive-delayed.service.js, newsletter.service.js
 - Routes Layer: tracking.js (refactored), analytics.js, projects.js
 - Handlers Layer: tracking.handlers.js, eventInsertion.handler.js, pipedriveSync.handler.js
 - Utilities: cookies.js, browser.js, url.js, workerLogger.js, fetchWithRetry.js
@@ -64,15 +65,16 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 - Cloudflare D1 (SQLite)
 - Tables: projects, pixels, visitors, sessions, tracking_events
 - Click IDs stored as individual columns
-- Form data stored as JSON (restricted fields)
+- Form data stored as JSON (all captured fields, sanitized)
 
 **CRM Integration**
 - Pipedrive API (direct integration)
-- Delayed sync via KV storage (7-minute delay)
+- Delayed sync via KV storage (7-minute delay, retries via scheduled Worker)
 - Person search: email first, then name (first_name + last_name)
 - Person matching only - does NOT create new persons
 - Sync status tracking: synced, not_found, error
 - 40+ field mapping to custom fields
+- Newsletter automation triggered alongside form submissions (non-blocking)
 
 ## Data Collection
 
@@ -81,7 +83,7 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 - Browser/device information
 - Session and visitor tracking with cookies
 - Geographic location (IP-based via Cloudflare)
-- Form submission data (first_name, last_name, email only)
+- Form submission data (ALL fields captured and sanitized)
 
 ## Privacy & Security
 
@@ -89,7 +91,7 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 - Cookie-based deduplication
 - First-party cookies only
 - Input validation and sanitization
-- Form data filtering (restricted fields only)
+- Form data filtering with XSS protection
 - Server-side first-visit attribution
 - Rate limiting via Durable Objects (sharded by IP prefix)
 - Bot detection middleware (blocks crawlers and automated tools)
@@ -100,8 +102,8 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 
 ### Architecture
 - Direct API integration
-- Delayed sync (10-minute delay via KV)
-- Person matching by email
+- Delayed sync (7-minute delay via KV, with scheduled retries for resilience)
+- Person matching by email, fallback to name
 - Field mapping to 40+ Pipedrive Person custom fields
 
 ### Field Mapping
@@ -113,16 +115,17 @@ Website Visitor → JavaScript Pixel → Cloudflare Worker → D1 Database → P
 - Geographic: country, region, city
 - Ad data: campaign_region, ad_group, ad_id, search_query
 - Device/Browser: user_agent, screen_resolution, device_type, operating_system
+- Additional fields: last_visited_on, visited_pages, session_duration, ip_address
 
 ### Integration Flow
 ```
 Form Submission Event
     ↓
-Extract form data (email, first_name, last_name)
+Extract form data (email + additional normalized fields)
     ↓
 Store in KV with 7-minute delay
     ↓
-Scheduled worker processes delayed syncs
+Scheduled worker processes delayed syncs & retries
     ↓
 Map to Pipedrive Person format
     ↓
@@ -139,57 +142,23 @@ Update database with sync status and person_id
 All tracking data synced to Pipedrive custom fields
 ```
 
-## Recent Updates (January 2025)
+## Recent Updates (November 2025)
 
-### Security Enhancements
-- ✅ Middleware chain wired to tracking routes (security headers, bot detection, rate limiting)
-- ✅ Rate limiter sharded by IP prefix for load distribution
-- ✅ Global error handler with structured logging
-- ✅ Auth middleware updated to use production-grade logging
+### Architecture Simplification
+- Removed redundant database reads in Pipedrive sync handler (UTMs sourced directly from request payload)
+- Hardened newsletter integration with wedding date parsing and logging
+- Increased observability across delayed sync pipeline (KV inspection, retries)
 
-### Reliability Improvements
-- ✅ Fetch utility with timeout and retry logic (`fetchWithRetry.js`)
-- ✅ All Pipedrive API calls protected with 5s timeout and 2 retry attempts
-- ✅ Archive endpoint protected with 10s timeout and retry logic
-- ✅ Scheduled worker timeout protection (30s max per sync operation)
-
-### Performance Optimizations
-- ✅ Visitor/session services optimized (eliminated redundant DB queries)
-- ✅ Added composite performance indexes (Migration 0009)
-- ✅ Tracking route refactored with handler extraction (reduced from 583 to ~280 lines)
-
-### Code Refactoring
-- ✅ Services layer extracted business logic
-- ✅ Handlers layer created for event insertion and Pipedrive sync
-- ✅ Code reduction in main tracking route
-- ✅ Utilities consolidation
-
-### Pipedrive Integration
-- ✅ Direct Pipedrive API integration with timeout/retry protection
-- ✅ Delayed sync (7-minute delay) with timeout protection
-- ✅ Person search: email first, then name - no person creation
-- ✅ Sync status tracking in database (synced/not_found/error)
-- ✅ Exponential backoff retry strategy for failed requests
+### Production Hardening
+- Structured logging across routes/services (no `console.log`)
+- KV TTL safeguards and retry backoff for delayed syncs
+- Circuit breaker for Pipedrive API + timeout-protected fetches
+- Rate limiting via Durable Objects with sharding
 
 ### Form Data Capture
-- Restricted to first_name, last_name, email only
-- Comments and other fields excluded
-- Form data sanitization in security middleware
-
-### Pixel Enhancements
-- Version 2.3.1
-- Complete UTM parameter capture
-- Click ID capture
-- Error handling improvements
-- Script selector robustness
-
-### Database Schema
-- Click IDs migrated from JSON to individual columns
-- Improved query performance with composite indexes
-- Form data stored as JSON (restricted fields)
-- Pipedrive sync status tracking: pipedrive_sync_status, pipedrive_sync_at, pipedrive_person_id
-- Migration 0009 adds performance indexes for analytics queries
-- Migration 0010 adds Pipedrive sync status columns
+- Captures ALL form fields with normalization and sanitization
+- Email required for CRM interaction; names inferred or parsed when present
+- Supports URL-parameter-only submissions for newsletter opt-in without creating false form submissions
 
 ## Project Context
 

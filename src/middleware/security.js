@@ -212,29 +212,51 @@ export const sanitizers = {
         return null;
       }
       
-      // Clean each field - ONLY accept first_name, last_name, email (and UTM params)
-      const allowedFields = ['first_name', 'last_name', 'email'];
+      // Clean all fields - accept all form fields but maintain strict sanitization
+      // Normalize field names for consistency (first-name -> first_name, etc.)
+      function normalizeFieldName(key) {
+        if (!key || typeof key !== 'string') return null;
+        // Convert hyphens to underscores, lowercase
+        return key.toLowerCase().trim().replace(/-/g, '_');
+      }
+      
+      // Check if field name indicates email (for validation)
+      function isEmailField(name) {
+        if (!name) return false;
+        const normalized = name.toLowerCase();
+        return normalized.indexOf('email') !== -1 || 
+               normalized.indexOf('mail') !== -1 ||
+               normalized === 'e-mail' ||
+               normalized === 'e_mail';
+      }
+      
       const cleanedData = {};
+      let hasEmail = false;
       
       for (const [key, value] of Object.entries(formData)) {
-        // Only process allowed fields
-        if (!allowedFields.includes(key)) {
-          continue; // Skip comments, messages, and other fields
-        }
-        
+        // Validate key
         if (typeof key !== 'string' || key.length === 0 || key.length > 100) {
           continue; // Skip invalid keys
         }
         
+        // Normalize field name
+        const normalizedKey = normalizeFieldName(key);
+        if (!normalizedKey) continue;
+        
         // Sanitize key (remove dangerous chars but keep hyphens, underscores, etc.)
-        const cleanKey = key.replace(/[<>'"]/g, '').trim();
+        const cleanKey = normalizedKey.replace(/[<>'"]/g, '').trim();
         if (!cleanKey) continue;
+        
+        // Check for email field (for validation requirement)
+        if (isEmailField(cleanKey) || cleanKey === 'email') {
+          hasEmail = true;
+        }
         
         // Accept string, number, boolean, or null values
         if (value === null || value === undefined) {
           cleanedData[cleanKey] = null;
         } else if (typeof value === 'string') {
-          // Sanitize string values
+          // Sanitize string values (XSS protection)
           const cleanValue = value
             .replace(/<script.*?>.*?<\/script>/gi, '')
             .replace(/javascript:/gi, '')
@@ -243,6 +265,7 @@ export const sanitizers = {
             .replace(/on\w+=/gi, '')
             .trim();
           
+          // Store if non-empty and within length limit
           if (cleanValue.length > 0 && cleanValue.length <= 2000) {
             cleanedData[cleanKey] = cleanValue;
           }
@@ -256,8 +279,17 @@ export const sanitizers = {
         // Skip arrays and objects (too complex to sanitize safely)
       }
       
+      // Normalize email field name if present
+      for (const key in cleanedData) {
+        if (isEmailField(key) && key !== 'email') {
+          cleanedData.email = cleanedData[key];
+          // Keep original key too if it's different (e.g., email_address)
+          // This preserves field structure while ensuring email is accessible
+        }
+      }
+      
       // Only return if we have at least email (required for Pipedrive search)
-      if (!cleanedData.email) {
+      if (!hasEmail && !cleanedData.email) {
         return null; // Require email field
       }
       

@@ -36,8 +36,7 @@
     "cloudflare-workers",
     "gdpr",
     "privacy",
-    "performance",
-    "zapier"
+    "performance"
   ],
   "author": "PPP Development Team",
   "license": "MIT",

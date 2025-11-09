@@ -51,10 +51,11 @@ new_sqlite_classes = [ "RateLimiter" ]
 # Environment variables
 [env.production.vars]
 ENVIRONMENT = "production"
-LOG_LEVEL = "warn"
-PIPEDRIVE_API_KEY = "2bd2ab77ade376a3c1c64ae62f748feb5c8cf591"
+LOG_LEVEL = "info"  # Changed from "warn" to "info" for better visibility
 ARCHIVE_ENDPOINT = "https://pixel.salesmagic.us/api/archive"
 ARCHIVE_DAYS = "180"
+NEWSLETTER_API_URL = "https://ppp-newsletter.tim-611.workers.dev/api/contacts"
+# PIPEDRIVE_API_KEY is provided via Wrangler secret (run `wrangler secret put PIPEDRIVE_API_KEY`)
 
 # Development environment
 [env.development]
@@ -78,15 +79,16 @@ bindings = [
 [env.development.vars]
 ENVIRONMENT = "development"
 LOG_LEVEL = "debug"
-PIPEDRIVE_API_KEY = "2bd2ab77ade376a3c1c64ae62f748feb5c8cf591"
 ARCHIVE_ENDPOINT = "http://localhost:3000/api/archive"
 ARCHIVE_DAYS = "180"
+# PIPEDRIVE_API_KEY is provided via Wrangler secret for local development as well
 
 # Routes for custom domain (connected via Cloudflare)
 [[env.production.routes]]
 pattern = "pixel.salesmagic.us/*"
 zone_name = "salesmagic.us"
 
-# Scheduled tasks for data archival and cleanup
-[triggers]
-crons = ["*/5 * * * *"]  # Run every 5 minutes for delayed Pipedrive syncs 
+# Scheduled tasks for delayed Pipedrive syncs and archival - MUST be in production environment
+# CRITICAL: Worker runs every 5 minutes to process delayed syncs (7 min delay + up to 5 min wait = 7-12 min total)
+[env.production.triggers]
+crons = ["*/5 * * * *"]  # Run every 5 minutes for delayed Pipedrive syncs and retries 

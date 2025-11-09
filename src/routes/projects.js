@@ -59,9 +59,26 @@ app.get('/', async (c) => {
  * POST / - Create a new project
  */
 app.post('/', async (c) => {
+  const logger = createLogger(c.env);
+  let body;
+
   try {
-    const body = await c.req.json();
-    
+    body = await c.req.json();
+  } catch (parseError) {
+    await logger.error('Failed to parse project creation payload', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
+      error: parseError.message
+    }).catch(() => {});
+
+    return c.json({
+      success: false,
+      error: 'Invalid JSON payload'
+    }, 400);
+  }
+
+  try {
     // Validate required fields
     if (!body.name) {
       return c.json({
@@ -89,15 +106,16 @@ app.post('/', async (c) => {
     }, 201);
 
   } catch (error) {
-    const logger = createLogger(c.env);
-    logger.error('Failed to create project', {
+    await logger.error('Failed to create project', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
       error: error.message,
       stack: error.stack,
-      project_name: body.name,
-      path: c.req.path
+      project_name: body?.name || 'unknown'
     }).catch(() => {});
     
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint failed')) {
       return c.json({
         success: false,
         error: 'Project name already exists'
@@ -163,9 +181,27 @@ app.get('/:id', async (c) => {
  * PUT /:id - Update a project
  */
 app.put('/:id', async (c) => {
+  const logger = createLogger(c.env);
+  let body;
+
+  try {
+    body = await c.req.json();
+  } catch (parseError) {
+    await logger.error('Failed to parse project update payload', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
+      error: parseError.message
+    }).catch(() => {});
+
+    return c.json({
+      success: false,
+      error: 'Invalid JSON payload'
+    }, 400);
+  }
+
   try {
     const projectId = c.req.param('id');
-    const body = await c.req.json();
 
     // Check if project exists
     const project = await c.env.DB.prepare(`
@@ -203,12 +239,13 @@ app.put('/:id', async (c) => {
     });
 
   } catch (error) {
-    const logger = createLogger(c.env);
-    logger.error('Failed to update project', {
+    await logger.error('Failed to update project', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
       error: error.message,
       stack: error.stack,
-      project_id: c.req.param('id'),
-      path: c.req.path
+      project_id: c.req.param('id')
     }).catch(() => {});
     return c.json({
       success: false,
@@ -318,9 +355,27 @@ app.get('/:projectId/pixels', async (c) => {
  * POST /:projectId/pixels - Create a new pixel
  */
 app.post('/:projectId/pixels', async (c) => {
+  const logger = createLogger(c.env);
+  let body;
+
+  try {
+    body = await c.req.json();
+  } catch (parseError) {
+    await logger.error('Failed to parse pixel creation payload', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
+      error: parseError.message
+    }).catch(() => {});
+
+    return c.json({
+      success: false,
+      error: 'Invalid JSON payload'
+    }, 400);
+  }
+
   try {
     const projectId = c.req.param('projectId');
-    const body = await c.req.json();
 
     // Verify project exists
     const project = await c.env.DB.prepare(`
@@ -367,15 +422,16 @@ app.post('/:projectId/pixels', async (c) => {
     }, 201);
 
   } catch (error) {
-    const logger = createLogger(c.env);
-    logger.error('Failed to create pixel', {
+    await logger.error('Failed to create pixel', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
       error: error.message,
       stack: error.stack,
-      project_id: c.req.param('projectId'),
-      path: c.req.path
+      project_id: c.req.param('projectId')
     }).catch(() => {});
-    
-    if (error.message.includes('UNIQUE constraint failed')) {
+
+    if (error.message?.includes('UNIQUE constraint failed')) {
       return c.json({
         success: false,
         error: 'Pixel name already exists in this project'
@@ -434,9 +490,27 @@ app.get('/pixels/:pixelId', async (c) => {
  * PUT /pixels/:pixelId - Update a pixel
  */
 app.put('/pixels/:pixelId', async (c) => {
+  const logger = createLogger(c.env);
+  let body;
+
+  try {
+    body = await c.req.json();
+  } catch (parseError) {
+    await logger.error('Failed to parse pixel update payload', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
+      error: parseError.message
+    }).catch(() => {});
+
+    return c.json({
+      success: false,
+      error: 'Invalid JSON payload'
+    }, 400);
+  }
+
   try {
     const pixelId = c.req.param('pixelId');
-    const body = await c.req.json();
 
     // Check if pixel exists
     const pixel = await c.env.DB.prepare(`
@@ -475,12 +549,13 @@ app.put('/pixels/:pixelId', async (c) => {
     });
 
   } catch (error) {
-    const logger = createLogger(c.env);
-    logger.error('Failed to update pixel', {
+    await logger.error('Failed to update pixel', {
+      component: 'projects-route',
+      path: c.req.path,
+      method: c.req.method,
       error: error.message,
       stack: error.stack,
-      pixel_id: c.req.param('pixelId'),
-      path: c.req.path
+      pixel_id: c.req.param('pixelId')
     }).catch(() => {});
     return c.json({
       success: false,

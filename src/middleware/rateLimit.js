@@ -15,8 +15,12 @@ export class RateLimiter {
   async fetch(request) {
     const url = new URL(request.url);
     const key = url.searchParams.get('key');
-    const limit = parseInt(url.searchParams.get('limit') || '1000');
-    const window = parseInt(url.searchParams.get('window') || '3600'); // 1 hour in seconds
+    // Validate and clamp limit (1-10000) to prevent DoS
+    const rawLimit = parseInt(url.searchParams.get('limit') || '1000');
+    const limit = Math.min(Math.max(isNaN(rawLimit) ? 1000 : rawLimit, 1), 10000);
+    // Validate and clamp window (1-86400 seconds = 1 second to 24 hours)
+    const rawWindow = parseInt(url.searchParams.get('window') || '3600');
+    const window = Math.min(Math.max(isNaN(rawWindow) ? 3600 : rawWindow, 1), 86400);
 
     if (!key) {
       return new Response('Missing key parameter', { status: 400 });

@@ -21,7 +21,9 @@ app.use('*', requireAuth);
 app.get('/stats/:pixelId', async (c) => {
   try {
     const pixelId = c.req.param('pixelId');
-    const days = parseInt(c.req.query('days') || '30');
+    // Validate and clamp days parameter (1-365) to prevent DoS via expensive queries
+    const rawDays = parseInt(c.req.query('days') || '30');
+    const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 365);
     
     // Validate pixel exists and user has access
     const pixel = await c.env.DB.prepare(
@@ -134,7 +136,9 @@ app.get('/stats/:pixelId', async (c) => {
 app.get('/project/:projectId/stats', async (c) => {
   try {
     const projectId = c.req.param('projectId');
-    const days = parseInt(c.req.query('days') || '30');
+    // Validate and clamp days parameter (1-365) to prevent DoS via expensive queries
+    const rawDays = parseInt(c.req.query('days') || '30');
+    const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 365);
     
     // Validate project exists
     const project = await c.env.DB.prepare(
@@ -217,8 +221,12 @@ app.get('/export/:pixelId', async (c) => {
   try {
     const pixelId = c.req.param('pixelId');
     const format = c.req.query('format') || 'json';
-    const days = parseInt(c.req.query('days') || '30');
-    const limit = parseInt(c.req.query('limit') || '1000');
+    // Validate and clamp days parameter (1-365) to prevent DoS via expensive queries
+    const rawDays = parseInt(c.req.query('days') || '30');
+    const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 365);
+    // Validate and clamp limit parameter (1-10000) to prevent DoS
+    const rawLimit = parseInt(c.req.query('limit') || '1000');
+    const limit = Math.min(Math.max(isNaN(rawLimit) ? 1000 : rawLimit, 1), 10000);
     
     // Validate pixel exists
     const pixel = await c.env.DB.prepare(
@@ -417,7 +425,7 @@ app.get('/metrics', async (c) => {
           const keyParts = key.name.split(':');
           if (keyParts.length !== 3) return false;
           const scheduledAt = parseInt(keyParts[2]);
-          return scheduledAt <= now;
+          return !isNaN(scheduledAt) && scheduledAt <= now;
         }).length;
       } catch (error) {
         await logger.warn('Failed to get delayed sync stats', { error: error.message }).catch(() => {});

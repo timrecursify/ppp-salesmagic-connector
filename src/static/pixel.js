@@ -1,12 +1,12 @@
 export default `/**
- * PPP Tracking Pixel v2.3.1 - Enhanced Attribution System
- * Fixed: duplicate tracking prevention, missing data fields, error handling, script selector robustness
- * All critical and non-critical fixes from PIXEL_CODE_REVIEW.md implemented
+ * PPP Tracking Pixel v2.4.0 - Enhanced Form Data Capture
+ * Enhanced: Capture all form fields (not just first_name, last_name, email)
+ * Fixed: Field normalization, wedding date extraction for newsletter, comprehensive form data capture
  */
 (function() {
   'use strict';
   
-  // PPP Enhanced Attribution System v2.3.1 loaded
+  // PPP Enhanced Attribution System v2.4.0 loaded
   
   // Configuration
   var config = {
@@ -152,43 +152,95 @@ export default `/**
       var formData = {};
       var inputs = form.querySelectorAll('input, textarea, select');
       
-      // Only capture first name, last name, and email fields
-      var allowedFields = {
-        'first_name': ['first_name', 'firstname', 'first-name', 'fname', 'f_name'],
-        'last_name': ['last_name', 'lastname', 'last-name', 'lname', 'l_name'],
-        'email': ['email', 'mail', 'e-mail', 'email_address', 'emailaddress']
-      };
+      // Normalize field names (convert hyphens to underscores, handle component IDs)
+      function normalizeFieldName(name) {
+        if (!name) return null;
+        // Convert common patterns: first-name -> first_name, input_comp-xxx -> input_comp_xxx
+        return name.toLowerCase().trim().replace(/-/g, '_');
+      }
+      
+      // Check if field name indicates email (for validation)
+      function isEmailField(name) {
+        if (!name) return false;
+        var normalized = name.toLowerCase();
+        return normalized.indexOf('email') !== -1 || 
+               normalized.indexOf('mail') !== -1 ||
+               normalized === 'e-mail';
+      }
       
       for (var i = 0; i < inputs.length; i++) {
         var input = inputs[i];
-        var name = (input.name || input.id || '').toLowerCase().trim();
+        var rawName = input.name || input.id || '';
+        var name = normalizeFieldName(rawName);
         var value = input.value;
         
-        // Skip empty values, passwords, submit buttons, and textareas (comments)
-        if (!name || !value || 
+        // Skip fields without names, passwords, submit buttons, hidden fields
+        if (!name || 
             input.type === 'password' || 
             input.type === 'submit' || 
             input.type === 'button' ||
-            input.tagName === 'TEXTAREA') {  // Skip all textareas (comments)
+            input.type === 'hidden') {
           continue;
         }
         
-        // Check if this is an allowed field
-        var fieldKey = null;
-        for (var allowedKey in allowedFields) {
-          if (allowedFields[allowedKey].indexOf(name) !== -1) {
-            fieldKey = allowedKey;
-            break;
-          }
+        // Handle different input types
+        if (input.tagName === 'SELECT') {
+          // Select dropdowns - capture selected value
+          value = input.value || (input.selectedIndex >= 0 ? input.options[input.selectedIndex].value : '');
+        } else if (input.type === 'checkbox') {
+          // Checkboxes - capture checked state
+          value = input.checked ? 'true' : 'false';
+        } else if (input.tagName === 'TEXTAREA') {
+          // Textareas - capture text content
+          value = input.value || '';
+        } else {
+          // Text inputs, email, tel, date, etc.
+          value = input.value || '';
         }
         
-        if (fieldKey) {
-          formData[fieldKey] = value.trim();
+        // Skip empty values (except checkboxes which can be false)
+        if (!value && input.type !== 'checkbox') {
+          continue;
         }
+        
+        // Store field with normalized name
+        // Preserve original field name structure but normalize for consistency
+        var fieldKey = name;
+        
+        // Special handling for common field name variations
+        if (name === 'first-name' || name === 'firstname' || name === 'fname' || name === 'f_name') {
+          fieldKey = 'first_name';
+        } else if (name === 'last-name' || name === 'lastname' || name === 'lname' || name === 'l_name') {
+          fieldKey = 'last_name';
+        } else if (isEmailField(name)) {
+          fieldKey = 'email';
+          }
+        
+        // Trim string values
+        if (typeof value === 'string') {
+          value = value.trim();
+        }
+        
+        // Store the field
+        formData[fieldKey] = value;
       }
       
       // Only store if we have at least email (required for Pipedrive search)
-      if (!formData.email) {
+      // Check both normalized 'email' key and any field containing 'email'
+      var hasEmail = false;
+      for (var key in formData) {
+        if (isEmailField(key) || key === 'email') {
+          hasEmail = true;
+          // Normalize email field name
+          if (key !== 'email') {
+            formData.email = formData[key];
+            delete formData[key];
+          }
+          break;
+        }
+      }
+      
+      if (!hasEmail) {
         return; // Don't store if no email
       }
       
@@ -427,7 +479,7 @@ export default `/**
   // Expose for debugging
   window.PPPTracker = {
     track: track,
-    version: '2.3.1',
+    version: '2.4.0',
     attribution: attributionManager,
     formManager: formManager,
     config: config,

@@ -7,8 +7,11 @@ import { createLogger } from '../utils/workerLogger.js';
 import { fetchJSONWithRetry } from '../utils/fetchWithRetry.js';
 import { getPipedriveCircuitBreaker } from '../utils/circuitBreaker.js';
 
+// Create logger instance for mapToPipedriveFields (static function)
+const staticLogger = createLogger({});
+
 // Pipedrive Person field mappings (custom field keys)
-const FIELD_MAPPING = {
+export const FIELD_MAPPING = {
   // Standard fields (used for search only, not updated)
   name: 'name',
   email: 'email',
@@ -76,15 +79,59 @@ function mapToPipedriveFields(trackingData) {
   // Pipedrive already has this data from form submission, we only update tracking fields
   
   // Map custom fields (Pipedrive expects custom field keys directly as properties)
-  // Only include non-null values
+  // Include all non-null values (including "none", "unknown", "direct" - these are valid UTM values)
+  const excludedFields = [];
+  const includedFields = [];
+  
   for (const [ourKey, pipedriveKey] of Object.entries(FIELD_MAPPING)) {
-    if (trackingData[ourKey] && 
-        !['name', 'email', 'first_name', 'last_name'].includes(ourKey)) {
+    // Skip name/email fields (used for search only, not updated)
+    if (['name', 'email', 'first_name', 'last_name'].includes(ourKey)) {
+      continue;
+    }
+    
+    // Check if field exists in trackingData (including empty strings, "none", "unknown", etc.)
+    if (trackingData.hasOwnProperty(ourKey) && trackingData[ourKey] !== null && trackingData[ourKey] !== undefined) {
       // Convert to string and trim
       const value = String(trackingData[ourKey]).trim();
-      if (value && value !== 'null' && value !== 'undefined') {
+      // Only exclude actual null/undefined strings, not valid values like "none" or "unknown"
+      if (value !== '' && value !== 'null' && value !== 'undefined') {
         pipedriveData[pipedriveKey] = value;
+        includedFields.push(`${ourKey}=${value.substring(0, 50)}`);
+      } else {
+        excludedFields.push(`${ourKey} (empty/null string: "${value}")`);
       }
+    } else {
+      // Field doesn't exist or is null/undefined
+      if (['utm_source', 'utm_medium', 'utm_campaign'].includes(ourKey)) {
+        excludedFields.push(`${ourKey} (${trackingData.hasOwnProperty(ourKey) ? 'null/undefined' : 'missing'})`);
+      }
+    }
+  }
+  
+  // Log UTM field mapping for debugging (critical for troubleshooting)
+  if (trackingData.event_id && (excludedFields.some(f => f.includes('utm_')) || includedFields.some(f => f.includes('utm_')))) {
+    try {
+      staticLogger.info('mapToPipedriveFields - UTM field mapping', {
+        component: 'pipedrive-service',
+        event_id: trackingData.event_id,
+        utm_fields_included: includedFields.filter(f => f.includes('utm_')),
+        utm_fields_excluded: excludedFields.filter(f => f.includes('utm_')),
+        total_fields_mapped: Object.keys(pipedriveData).length,
+        has_utm_source_in_trackingData: trackingData.hasOwnProperty('utm_source'),
+        utm_source_value: trackingData.utm_source || 'NULL',
+        has_utm_medium_in_trackingData: trackingData.hasOwnProperty('utm_medium'),
+        utm_medium_value: trackingData.utm_medium || 'NULL'
+      }).catch((logError) => {
+        console.error('[pipedrive-service] Failed to log UTM field mapping', {
+          logging_error: logError.message,
+          event_id: trackingData.event_id
+        });
+      });
+    } catch (logError) {
+      console.error('[pipedrive-service] Failed to log UTM field mapping (outer catch)', {
+        logging_error: logError.message,
+        event_id: trackingData.event_id
+      });
     }
   }
   
@@ -93,59 +140,231 @@ function mapToPipedriveFields(trackingData) {
 
 /**
  * Search for person by email
+ * IMPROVED: Try exact match first, then broader search, with detailed logging
  */
 async function searchPersonByEmail(apiKey, email) {
   const baseUrl = 'https://api.pipedrive.com/v1';
+  const logger = createLogger({});
+  
+  // CRITICAL DEBUG: Always log with console.log as fallback
+  console.log('[pipedrive-service] searchPersonByEmail called', {
+    email: email?.substring(0, 15) + '...',
+    has_api_key: !!apiKey
+  });
   
   if (!email) {
+    console.log('[pipedrive-service] searchPersonByEmail - NO EMAIL provided');
     return null;
   }
   
   try {
     const circuitBreaker = getPipedriveCircuitBreaker();
-    
-    // Use circuit breaker to wrap the API call
-    const emailData = await circuitBreaker.execute(async () => {
-      const emailParams = new URLSearchParams({ 
-        api_token: apiKey,
-        term: email,
-        fields: 'email',
-        exact_match: 'true'
-      });
-      
-      return await fetchJSONWithRetry(
-        `${baseUrl}/persons/search?${emailParams}`,
-        {},
-        {
-          timeout: 5000,
-          maxRetries: 2,
-          initialDelay: 1000,
-          shouldRetry: (error, response) => {
-            // Retry on network errors or 5xx errors
-            if (error) return true;
-            if (response && response.status >= 500) return true;
-            return false;
-          }
-        }
-      );
+    console.log('[pipedrive-service] Circuit breaker status:', {
+      state: circuitBreaker.getState ? circuitBreaker.getState() : 'unknown'
     });
     
-    if (emailData.success && emailData.data && emailData.data.items && emailData.data.items.length > 0) {
-      return emailData.data.items[0].item.id;
+    // STRATEGY 1: Try exact match with fields=email (strictest)
+    try {
+      const emailData = await circuitBreaker.execute(async () => {
+        const emailParams = new URLSearchParams({ 
+          api_token: apiKey,
+          term: email,
+          fields: 'email',
+          exact_match: 'true'
+        });
+        
+        return await fetchJSONWithRetry(
+          `${baseUrl}/persons/search?${emailParams}`,
+          {},
+          {
+            timeout: 5000,
+            maxRetries: 2,
+            initialDelay: 1000,
+            shouldRetry: (error, response) => {
+              if (error) return true;
+              if (response && response.status >= 500) return true;
+              return false;
+            }
+          }
+        );
+      });
+      
+      if (emailData.success && emailData.data && emailData.data.items && emailData.data.items.length > 0) {
+        const personId = emailData.data.items[0].item.id;
+        await logger.info('Pipedrive email search - exact match found', {
+          component: 'pipedrive-service',
+          email: email.substring(0, 15) + '...',
+          person_id: personId,
+          search_strategy: 'exact_match'
+        });
+        return personId;
+      }
+      
+      await logger.info('Pipedrive email search - no exact match', {
+        component: 'pipedrive-service',
+        email: email.substring(0, 15) + '...',
+        items_found: emailData.data?.items?.length || 0
+      });
+    } catch (exactMatchError) {
+      await logger.warn('Pipedrive email exact match search failed', {
+        component: 'pipedrive-service',
+        email: email.substring(0, 15) + '...',
+        error: exactMatchError.message
+      });
     }
     
+    // STRATEGY 2: Try broader search without exact_match AND without fields restriction
+    // CRITICAL: When fields=email, Pipedrive might not search structured email fields [{ value, label }]
+    // Searching without fields parameter does a broader search across all person data
+    try {
+      const broadData = await circuitBreaker.execute(async () => {
+        const broadParams = new URLSearchParams({ 
+          api_token: apiKey,
+          term: email
+          // NO exact_match - allows case-insensitive matching
+          // NO fields - searches across ALL person fields (name, email, phone, etc.)
+        });
+        
+        return await fetchJSONWithRetry(
+          `${baseUrl}/persons/search?${broadParams}`,
+          {},
+          {
+            timeout: 5000,
+            maxRetries: 2,
+            initialDelay: 1000,
+            shouldRetry: (error, response) => {
+              if (error) return true;
+              if (response && response.status >= 500) return true;
+              return false;
+            }
+          }
+        );
+      });
+      
+      console.log('[pipedrive-service] Broad search response:', {
+        success: broadData.success,
+        has_data: !!broadData.data,
+        items_count: broadData.data?.items?.length || 0
+      });
+      
+      if (broadData.success && broadData.data && broadData.data.items && broadData.data.items.length > 0) {
+        console.log('[pipedrive-service] Broad search - FOUND RESULTS:', broadData.data.items.length);
+        await logger.info('Pipedrive broad search - API returned results', {
+          component: 'pipedrive-service',
+          email: email.substring(0, 15) + '...',
+          items_count: broadData.data.items.length,
+          search_strategy: 'broad_no_fields'
+        });
+        
+        // Manually validate email match (case-insensitive)
+        const searchLower = email.toLowerCase();
+        for (const item of broadData.data.items) {
+          const person = item.item;
+          
+          // CRITICAL: Collect ALL possible email values from different field structures
+          const emailValues = [];
+          
+          // 1. person.email - can be string OR array of objects
+          if (person.email) {
+            if (typeof person.email === 'string') {
+              emailValues.push(person.email);
+            } else if (Array.isArray(person.email)) {
+              // Handle array format: [{ value: "email@...", label: "work" }]
+              for (const emailObj of person.email) {
+                if (emailObj && emailObj.value) {
+                  emailValues.push(emailObj.value);
+                }
+              }
+            }
+          }
+          
+          // 2. person.primary_email - always string if exists
+          if (person.primary_email) {
+            emailValues.push(person.primary_email);
+          }
+          
+          // 3. person.emails - array (note plural)
+          if (person.emails && Array.isArray(person.emails)) {
+            for (const emailItem of person.emails) {
+              if (typeof emailItem === 'string') {
+                emailValues.push(emailItem);
+              } else if (emailItem && emailItem.value) {
+                emailValues.push(emailItem.value);
+              }
+            }
+          }
+          
+          // Remove duplicates and nulls
+          const uniqueEmails = [...new Set(emailValues.filter(Boolean))];
+          
+          console.log(`[pipedrive-service] Checking person ${person.id}:`, {
+            name: person.name,
+            emails: uniqueEmails,
+            searching_for: email
+          });
+          
+          await logger.info('Pipedrive broad search - checking person', {
+            component: 'pipedrive-service',
+            person_id: person.id,
+            person_name: person.name || 'N/A',
+            emails_found: uniqueEmails,
+            emails_count: uniqueEmails.length,
+            searching_for: email.substring(0, 15) + '...'
+          });
+          
+          // Check if any email matches (case-insensitive)
+          for (const personEmail of uniqueEmails) {
+            if (personEmail.toLowerCase() === searchLower) {
+              await logger.info('Pipedrive email search - broad match found', {
+                component: 'pipedrive-service',
+                email: email.substring(0, 15) + '...',
+                person_id: person.id,
+                search_strategy: 'broad_match',
+                matched_email: personEmail,
+                all_emails_found: uniqueEmails.length
+              });
+              return person.id;
+            }
+          }
+        }
+        
+        await logger.warn('Pipedrive email search - items found but no email match', {
+          component: 'pipedrive-service',
+          email: email.substring(0, 15) + '...',
+          items_found: broadData.data.items.length
+        });
+      }
+    } catch (broadError) {
+      await logger.error('Pipedrive email broad search failed', {
+        component: 'pipedrive-service',
+        email: email.substring(0, 15) + '...',
+        error: broadError.message,
+        stack: broadError.stack
+      });
+    }
+    
+    console.log('[pipedrive-service] searchPersonByEmail - NO MATCH FOUND');
     return null;
   } catch (error) {
-    // Circuit breaker errors are handled gracefully
+    console.error('[pipedrive-service] FATAL ERROR in searchPersonByEmail:', error);
+    await logger.error('Pipedrive email search - FATAL ERROR', {
+      component: 'pipedrive-service',
+      email: email.substring(0, 15) + '...',
+      error: error.message,
+      stack: error.stack,
+      error_type: error.constructor.name
+    });
     return null;
   }
 }
 
 /**
  * Search for person by name (first_name + last_name)
+ * IMPROVED: Added detailed logging for debugging
  */
 async function searchPersonByName(apiKey, firstName, lastName) {
   const baseUrl = 'https://api.pipedrive.com/v1';
+  const logger = createLogger({});
   
   if (!firstName && !lastName) {
     return null;
@@ -191,12 +410,31 @@ async function searchPersonByName(apiKey, firstName, lastName) {
     
     if (nameData.success && nameData.data && nameData.data.items && nameData.data.items.length > 0) {
       // Return first match
-      return nameData.data.items[0].item.id;
+      const personId = nameData.data.items[0].item.id;
+      await logger.info('Pipedrive name search - match found', {
+        component: 'pipedrive-service',
+        search_term: searchTerm,
+        person_id: personId,
+        items_found: nameData.data.items.length
+      });
+      return personId;
     }
+    
+    await logger.info('Pipedrive name search - no match', {
+      component: 'pipedrive-service',
+      search_term: searchTerm,
+      items_found: nameData.data?.items?.length || 0
+    });
     
     return null;
   } catch (error) {
-    // Circuit breaker errors are handled gracefully
+    await logger.error('Pipedrive name search - FATAL ERROR', {
+      component: 'pipedrive-service',
+      search_term: searchTerm,
+      error: error.message,
+      stack: error.stack,
+      error_type: error.constructor.name
+    });
     return null;
   }
 }
@@ -209,21 +447,47 @@ async function searchPersonByName(apiKey, firstName, lastName) {
  */
 export async function findOrCreatePerson(env, trackingData) {
   const logger = createLogger(env);
+  const startTime = Date.now();
   const apiKey = env.PIPEDRIVE_API_KEY;
   const circuitBreaker = getPipedriveCircuitBreaker();
   
+  await logger.info('findOrCreatePerson - function called', {
+    component: 'pipedrive-service',
+    event_id: trackingData.event_id,
+    email: trackingData.email,
+    has_api_key: !!apiKey
+  });
+  
   if (!apiKey) {
-    await logger.error('PIPEDRIVE_API_KEY not configured');
+    await logger.error('findOrCreatePerson - FATAL: PIPEDRIVE_API_KEY not configured', {
+      component: 'pipedrive-service',
+      event_id: trackingData.event_id
+    });
     return { personId: null, status: 'error', reason: 'API key not configured' };
   }
   
   try {
     const pipedriveData = mapToPipedriveFields(trackingData);
     
+    await logger.info('findOrCreatePerson - data mapped', {
+      component: 'pipedrive-service',
+      event_id: trackingData.event_id,
+      field_count: Object.keys(pipedriveData).length
+    });
+    
     // Check circuit breaker state before attempting
     const breakerState = circuitBreaker.getState();
+    
+    await logger.info('findOrCreatePerson - circuit breaker checked', {
+      component: 'pipedrive-service',
+      event_id: trackingData.event_id,
+      breaker_state: breakerState.state,
+      can_attempt: breakerState.state !== 'OPEN' || breakerState.canAttempt
+    });
+    
     if (breakerState.state === 'OPEN' && !breakerState.canAttempt) {
-      await logger.warn('Pipedrive API circuit breaker is OPEN, skipping sync', {
+      await logger.warn('findOrCreatePerson - circuit breaker OPEN', {
+        component: 'pipedrive-service',
         event_id: trackingData.event_id,
         nextAttempt: new Date(breakerState.nextAttempt).toISOString()
       });
@@ -235,28 +499,75 @@ export async function findOrCreatePerson(env, trackingData) {
     
     // Step 1: Search by email first
     if (trackingData.email) {
+      const emailSearchStart = Date.now();
+      await logger.info('findOrCreatePerson - searching by email', {
+        component: 'pipedrive-service',
+        event_id: trackingData.event_id,
+        email: trackingData.email
+      });
+      
       existingPersonId = await searchPersonByEmail(apiKey, trackingData.email);
+      const emailSearchDuration = Date.now() - emailSearchStart;
+      
       if (existingPersonId) {
         searchMethod = 'email';
+        await logger.info('findOrCreatePerson - person found by email', {
+          component: 'pipedrive-service',
+          event_id: trackingData.event_id,
+          person_id: existingPersonId,
+          search_duration_ms: emailSearchDuration
+        });
+      } else {
+        await logger.info('findOrCreatePerson - person NOT found by email', {
+          component: 'pipedrive-service',
+          event_id: trackingData.event_id,
+          email: trackingData.email,
+          search_duration_ms: emailSearchDuration
+        });
       }
     }
     
     // Step 2: If not found by email, search by name
     if (!existingPersonId && trackingData.first_name && trackingData.last_name) {
+      const nameSearchStart = Date.now();
+      await logger.info('findOrCreatePerson - searching by name', {
+        component: 'pipedrive-service',
+        event_id: trackingData.event_id,
+        first_name: trackingData.first_name,
+        last_name: trackingData.last_name
+      });
+      
       existingPersonId = await searchPersonByName(
       apiKey,
         trackingData.first_name,
         trackingData.last_name
       );
+      const nameSearchDuration = Date.now() - nameSearchStart;
+      
       if (existingPersonId) {
         searchMethod = 'name';
+        await logger.info('findOrCreatePerson - person found by name', {
+          component: 'pipedrive-service',
+          event_id: trackingData.event_id,
+          person_id: existingPersonId,
+          search_duration_ms: nameSearchDuration
+        });
+      } else {
+        await logger.info('findOrCreatePerson - person NOT found by name', {
+          component: 'pipedrive-service',
+          event_id: trackingData.event_id,
+          search_duration_ms: nameSearchDuration
+        });
       }
     }
     
     // If person not found, return null status
     if (!existingPersonId) {
-      await logger.info('Person not found in Pipedrive', {
+      const totalDuration = Date.now() - startTime;
+      await logger.warn('findOrCreatePerson - person NOT FOUND in Pipedrive', {
+        component: 'pipedrive-service',
         event_id: trackingData.event_id,
+        total_duration_ms: totalDuration,
         email: trackingData.email || 'none',
         first_name: trackingData.first_name || 'none',
         last_name: trackingData.last_name || 'none'
@@ -268,6 +579,16 @@ export async function findOrCreatePerson(env, trackingData) {
     const baseUrl = 'https://api.pipedrive.com/v1';
     const params = new URLSearchParams({ api_token: apiKey });
     
+    await logger.info('findOrCreatePerson - attempting Pipedrive API update', {
+      component: 'pipedrive-service',
+      event_id: trackingData.event_id,
+      person_id: existingPersonId,
+      field_count: Object.keys(pipedriveData).length,
+      url: `${baseUrl}/persons/${existingPersonId}`
+    });
+    
+    const apiUpdateStart = Date.now();
+    try {
       const updateResult = await circuitBreaker.execute(async () => {
         return await fetchJSONWithRetry(
           `${baseUrl}/persons/${existingPersonId}?${params}`,
@@ -288,21 +609,43 @@ export async function findOrCreatePerson(env, trackingData) {
           }
         );
       });
+      const apiUpdateDuration = Date.now() - apiUpdateStart;
+      const totalDuration = Date.now() - startTime;
       
       if (updateResult.success) {
-        await logger.info('Updated person in Pipedrive', {
+        await logger.info('findOrCreatePerson - Pipedrive API update SUCCESS', {
+          component: 'pipedrive-service',
           person_id: existingPersonId,
-        event_id: trackingData.event_id,
-        search_method: searchMethod
+          event_id: trackingData.event_id,
+          search_method: searchMethod,
+          api_duration_ms: apiUpdateDuration,
+          total_duration_ms: totalDuration
         });
-      return { personId: updateResult.data.id, status: 'synced', reason: `Found by ${searchMethod}` };
+        return { personId: updateResult.data.id, status: 'synced', reason: `Found by ${searchMethod}` };
       } else {
-        await logger.error('Failed to update person in Pipedrive', {
+        await logger.error('findOrCreatePerson - Pipedrive API update FAILED', {
+          component: 'pipedrive-service',
           error: updateResult.error,
+          person_id: existingPersonId,
+          event_id: trackingData.event_id,
+          api_duration_ms: apiUpdateDuration,
+          total_duration_ms: totalDuration
+        });
+        return { personId: existingPersonId, status: 'error', reason: updateResult.error || 'Update failed' };
+      }
+    } catch (apiError) {
+      const apiUpdateDuration = Date.now() - apiUpdateStart;
+      const totalDuration = Date.now() - startTime;
+      await logger.error('findOrCreatePerson - Pipedrive API update EXCEPTION', {
+        component: 'pipedrive-service',
+        error: apiError.message,
+        stack: apiError.stack,
         person_id: existingPersonId,
-        event_id: trackingData.event_id
+        event_id: trackingData.event_id,
+        api_duration_ms: apiUpdateDuration,
+        total_duration_ms: totalDuration
       });
-      return { personId: existingPersonId, status: 'error', reason: updateResult.error || 'Update failed' };
+      throw apiError;
     }
   } catch (error) {
     // Check if error is from circuit breaker

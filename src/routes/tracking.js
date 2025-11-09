@@ -12,6 +12,7 @@ import { generateVisitorCookie, isValidVisitorCookie } from '../utils/cookies.js
 import { extractUTMParams, extractAttributionFromURLs, createAttributionSummary } from '../services/utm.service.js';
 import { findOrCreateVisitor } from '../services/visitor.service.js';
 import { createOrUpdateSession } from '../services/session.service.js';
+import { extractBrowserData, extractDeviceData } from '../utils/browser.js';
 import { 
   extractFormDataFromURL, 
   parseFormData, 
@@ -20,6 +21,7 @@ import {
 } from '../handlers/tracking.handlers.js';
 import { insertTrackingEvent } from '../handlers/eventInsertion.handler.js';
 import { prepareAndSchedulePipedriveSync } from '../handlers/pipedriveSync.handler.js';
+import { addToNewsletter } from '../services/newsletter.service.js';
 
 const app = new Hono();
 
@@ -86,6 +88,7 @@ app.post('/track', validateTrackingRequest, async (c) => {
 
     // Extract form data from URL or provided data
     let finalFormData = form_data;
+    let formDataFromURL = null; // Track if form data came from URL (not actual form submission)
     
     // Log form data received for debugging
     if (form_data) {
@@ -96,14 +99,27 @@ app.post('/track', validateTrackingRequest, async (c) => {
       }).catch(() => {});
     }
     
+    // Extract form data from URL parameters (for newsletter signup, but NOT for form_submit event)
     if (!finalFormData && page_url) {
-      finalFormData = extractFormDataFromURL(page_url);
+      formDataFromURL = extractFormDataFromURL(page_url);
     }
     if (!finalFormData && referrer_url) {
-      finalFormData = extractFormDataFromURL(referrer_url);
+      formDataFromURL = extractFormDataFromURL(referrer_url);
     }
-
-    const finalEventType = determineEventType(finalFormData, event_type);
+    
+    // Only treat as form submission if:
+    // 1. Client explicitly sent event_type='form_submit' (from thank-you page), OR
+    // 2. Form data came from client (form_data parameter), NOT from URL parameters
+    // URL parameters alone should NOT trigger form_submit events
+    const finalEventType = determineEventType(
+      finalFormData, // Only use actual form_data, not URL params
+      event_type
+    );
+    
+    // Use URL form data for newsletter signup, but don't treat as form_submit event
+    if (!finalFormData && formDataFromURL) {
+      finalFormData = formDataFromURL; // Use for newsletter, but event_type stays as pageview
+    }
     
     // Log event type determination
     if (finalFormData || finalEventType === 'form_submit') {
@@ -172,34 +188,124 @@ app.post('/track', validateTrackingRequest, async (c) => {
       screenData: validatedData.screen
     });
 
-    // Send to Pipedrive if form submission
-    if (finalFormData || finalEventType === 'form_submit') {
-      await prepareAndSchedulePipedriveSync(c.env, logger, {
-        eventId: finalEventId,
-        visitorId: visitor.id,
-        sessionId: session.id,
-        pixelId: pixel_id,
-        projectId: finalProjectId,
-        pageUrl: page_url,
-        referrerUrl: referrer_url,
-        pageTitle: page_title,
-        userAgent: userAgentHeader,
-        country,
-        region,
-        city,
-        attribution,
-        utmData,
-        formData: finalFormData,
-        screenData: validatedData.screen,
-        eventType: finalEventType,
-        clientIP
+    // Parse form data for newsletter signup (works for both actual forms and URL params)
+    const formDataParsed = finalFormData ? parseFormData(finalFormData) : null;
+    
+    // Send to Pipedrive ONLY if actual form submission (not URL parameters)
+    if (finalEventType === 'form_submit' && formDataParsed) {
+      await logger.info('Form submission detected - preparing Pipedrive sync', {
+        component: 'tracking-route',
+        event_id: finalEventId,
+        has_form_data: !!finalFormData,
+        form_data_keys: Object.keys(formDataParsed).join(', ')
       });
       
+      // Prepare Pipedrive sync (non-blocking, but tracked by executionCtx)
+      // CRITICAL: Wrapped in executionCtx.waitUntil() to ensure completion before worker shutdown
       if (c.env.executionCtx) {
-        // Ensure async operations are tracked
         c.env.executionCtx.waitUntil(
-          Promise.resolve().catch(() => {})
+          prepareAndSchedulePipedriveSync(c.env, logger, {
+            eventId: finalEventId,
+            visitorId: visitor.id,
+            sessionId: session.id,
+            pixelId: pixel_id,
+            projectId: finalProjectId,
+            pageUrl: page_url,
+            referrerUrl: referrer_url,
+            pageTitle: page_title,
+            userAgent: userAgentHeader,
+            country,
+            region,
+            city,
+            attribution,
+            utmData,
+            formData: finalFormData,
+            screenData: validatedData.screen,
+            eventType: finalEventType,
+            clientIP
+          }).then(async (result) => {
+            // Check if sync scheduling returned false (not an exception, but a failure)
+            if (result === false) {
+              await logger.error('CRITICAL: Pipedrive sync scheduling returned false', {
+                component: 'tracking-route',
+                event_id: finalEventId,
+                email: formDataParsed?.email || 'unknown',
+                reason: 'scheduleDelayedSync returned false - likely KV write failure'
+              });
+            } else if (result === null) {
+              await logger.warn('Pipedrive sync scheduling skipped', {
+                component: 'tracking-route',
+                event_id: finalEventId,
+                reason: 'prepareAndSchedulePipedriveSync returned null - likely no email or invalid event type'
+              });
+            } else {
+              await logger.info('Pipedrive sync scheduled successfully', {
+                component: 'tracking-route',
+                event_id: finalEventId,
+                email: formDataParsed?.email || 'unknown'
+              });
+            }
+          }).catch(async (error) => {
+            // Log but don't block response - MUST LOG ERROR
+            try {
+              await logger.error('CRITICAL: Pipedrive sync scheduling failed with exception', {
+                component: 'tracking-route',
+                event_id: finalEventId,
+                error: error.message,
+                stack: error.stack,
+                error_type: error.constructor.name
+              });
+            } catch (logError) {
+              // If logging fails, at least console.error
+              console.error('FATAL: Logging failed for Pipedrive sync error', {
+                original_error: error.message,
+                logging_error: logError.message,
+                event_id: finalEventId
+              });
+            }
+          })
         );
+      } else {
+        // Fallback if executionCtx not available (shouldn't happen in production)
+        await logger.error('CRITICAL: executionCtx not available for Pipedrive sync', {
+          component: 'tracking-route',
+          event_id: finalEventId
+        });
+      }
+    }
+    
+    // Add to newsletter if email exists (works for both actual forms AND URL parameters)
+    // This ensures visitors with email/name in URL still get added to newsletter
+    // CRITICAL: Wrapped in executionCtx.waitUntil() to ensure completion before worker shutdown
+    if (formDataParsed && formDataParsed.email) {
+      if (c.env.executionCtx) {
+        c.env.executionCtx.waitUntil(
+          addToNewsletter(c.env, formDataParsed).catch((error) => {
+            // Log but don't block response - newsletter signup is non-critical
+            try {
+              logger.debug('Newsletter signup failed', {
+                component: 'tracking-route',
+                event_id: finalEventId,
+                email: formDataParsed.email?.substring(0, 10) + '...',
+                error: error.message,
+                stack: error.stack,
+                source: formDataFromURL && !form_data ? 'url_params' : 'form_submission'
+              });
+            } catch (logError) {
+              console.error('Failed to log newsletter signup error', {
+                original_error: error.message,
+                logging_error: logError.message,
+                event_id: finalEventId
+              });
+            }
+          })
+        );
+      } else {
+        // Fallback if executionCtx not available (shouldn't happen in production)
+        await logger.warn('executionCtx not available for newsletter signup', {
+          component: 'tracking-route',
+          event_id: finalEventId
+        });
       }
     }
 

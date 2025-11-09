@@ -92,20 +92,60 @@ export async function insertTrackingEvent(env, {
   let finalEventId = eventId;
   if (!finalEventId && eventResult.meta.changes > 0) {
     // Use timestamp-based query to ensure we get the correct event
-    // Add a small delay to ensure database consistency
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Increased delay from 10ms to 50ms for better D1 consistency
+    await new Promise(resolve => setTimeout(resolve, 50));
     
-    const inserted = await env.DB.prepare(
-      'SELECT id FROM tracking_events WHERE visitor_id = ? AND session_id = ? AND timestamp >= datetime(?, "-1 second") ORDER BY id DESC LIMIT 1'
-    ).bind(visitorId, sessionId, new Date().toISOString()).first();
+    // More specific query with additional WHERE conditions to avoid race conditions
+    const inserted = await env.DB.prepare(`
+      SELECT id FROM tracking_events 
+      WHERE visitor_id = ? 
+        AND session_id = ? 
+        AND event_type = ?
+        AND page_url = ?
+        AND timestamp >= datetime(?, "-2 seconds") 
+      ORDER BY id DESC 
+      LIMIT 1
+    `).bind(
+      visitorId, 
+      sessionId, 
+      eventType,
+      pageUrl,
+      new Date().toISOString()
+    ).first();
     
     if (inserted?.id) {
       finalEventId = inserted.id;
+    } else {
+      // If still not found, try one more time with longer delay
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const retryInserted = await env.DB.prepare(`
+        SELECT id FROM tracking_events 
+        WHERE visitor_id = ? 
+          AND session_id = ? 
+          AND timestamp >= datetime(?, "-3 seconds") 
+        ORDER BY id DESC 
+        LIMIT 1
+      `).bind(visitorId, sessionId, new Date().toISOString()).first();
+      
+      if (retryInserted?.id) {
+        finalEventId = retryInserted.id;
+      }
     }
   }
 
   if (!finalEventId) {
-    throw new Error(`Failed to get event ID. Meta: ${JSON.stringify(eventResult.meta)}`);
+    // Log warning instead of throwing to prevent blocking the entire request
+    console.error('CRITICAL: Failed to get event ID after insert', {
+      meta: eventResult.meta,
+      visitor_id: visitorId,
+      session_id: sessionId,
+      event_type: eventType,
+      page_url: pageUrl
+    });
+    
+    // Return a fallback value or throw based on severity
+    throw new Error(`Failed to get event ID after database insert. Changes: ${eventResult.meta.changes}`);
   }
 
   return finalEventId;
