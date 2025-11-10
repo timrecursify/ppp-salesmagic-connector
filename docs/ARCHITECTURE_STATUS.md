@@ -86,9 +86,13 @@ Production tracking pixel system deployed on Cloudflare Workers with direct Pipe
 **Schema**:
 - Click IDs stored as individual columns: `gclid`, `fbclid`, `msclkid`, `ttclid`, `twclid`, `li_fat_id`, `sc_click_id`
 - Ad parameters: `campaign_region`, `ad_group`, `ad_id`, `search_query`
-- Form data stored as JSON: `form_data` (ALL form fields captured - text, textarea, select, checkbox, date, etc.)
+- Form data stored as JSON string: `form_data` TEXT column (ALL form fields automatically captured)
+  - Pixel.js v2.4.0 captures all form fields: text inputs, textareas, selects, checkboxes, dates, etc.
+  - Field name normalization: hyphens → underscores, case-insensitive matching
+  - No configuration needed - all fields auto-discovered and captured
 - Email field required for Pipedrive sync (extracted from form_data JSON)
 - Pipedrive sync tracking: `pipedrive_sync_status`, `pipedrive_sync_at`, `pipedrive_person_id`
+- Project configuration: `pipedrive_enabled` flag controls Pipedrive sync per project
 
 **Indexes**: Optimized for visitor lookup, session queries, and analytics
 - Composite indexes for analytics queries (pixel_id + timestamp + archived)
@@ -297,13 +301,17 @@ NEWSLETTER_AUTH_TOKEN = "[Cloudflare Secret]"
   - Pixel.js v2.4.0 captures ALL form fields automatically
   - No field list configuration needed
   - Field name normalization (hyphens → underscores, case-insensitive)
-- ✅ **Documentation**: Created comprehensive guides for new projects and form data storage
-  - `docs/NEW_PROJECTS_SETUP.md`: Installation guide with pixel codes
-  - `docs/FORM_DATA_STORAGE.md`: Architecture documentation for form data storage
+- ✅ **Form Data Storage**: Form data stored as JSON string in `form_data` column
+  - Pixel.js v2.4.0 automatically captures ALL form fields (text, textarea, select, checkbox, date, etc.)
+  - Field name normalization (hyphens → underscores, case-insensitive)
+  - No field list configuration needed - all fields auto-discovered
+- ✅ **PPP Project Configuration**: Explicitly set `pipedrive_enabled: true` in project configuration
+- ✅ **Deployment**: Version `72102db1-8f69-42a2-bf77-810ebf8559df` deployed successfully
 
 **Files Modified:**
 - `src/routes/tracking.js`: Added project configuration check for `pipedrive_enabled` flag
 - `migrations/0012_add_new_projects.sql`: NEW - Adds 4 projects with proper configuration
+- Database: Updated PPP project configuration to set `pipedrive_enabled: true` explicitly
 
 ### Recent Improvements (November 2025)
 

@@ -24,19 +24,23 @@
 - ✅ **Form Data Capture**: Confirmed ALL form fields automatically captured (stored as JSON)
 - ✅ **Database Migration**: Migration 0012_add_new_projects.sql applied successfully
 - ✅ **Tracking Route Update**: Added project configuration check to disable Pipedrive sync per project
-- ✅ **Documentation**: Created NEW_PROJECTS_SETUP.md and FORM_DATA_STORAGE.md
+- ✅ **PPP Project Updated**: Set `pipedrive_enabled: true` explicitly in configuration
+- ✅ **Deployment**: Version `72102db1-8f69-42a2-bf77-810ebf8559df` deployed to Cloudflare Workers
 - **Files Modified**:
   - `src/routes/tracking.js`: Added project configuration check for pipedrive_enabled flag
   - `migrations/0012_add_new_projects.sql`: NEW - Adds 4 projects with Pipedrive sync disabled
-  - `docs/NEW_PROJECTS_SETUP.md`: NEW - Installation guide for new projects
-  - `docs/FORM_DATA_STORAGE.md`: NEW - Form data storage architecture documentation
   - `scripts/add-new-projects-api.js`: NEW - API script for adding projects
   - `scripts/get-pixel-codes.js`: NEW - Script to retrieve pixel codes
 - **Impact**: 
-  - New projects track data without sending to Pipedrive
-  - PPP project continues to sync to Pipedrive (backward compatible)
-  - All form fields automatically captured and stored as JSON
+  - New projects track data without sending to Pipedrive (`pipedrive_enabled: false`)
+  - PPP project explicitly set to sync to Pipedrive (`pipedrive_enabled: true`)
+  - All form fields automatically captured and stored as JSON in `form_data` column
   - No breaking changes to existing functionality
+- **Pixel Codes for Installation**:
+  - Desaas.io: `desaas-pixel-0001-4000-8000-0000-000000000001` (https://desaas.io/start-now)
+  - Blackbowassociates: `blackbow-pixel-0001-4000-8000-0000-000000000002` (sign-up page)
+  - Cloud Nine: `cloudnine-pixel-0001-4000-8000-0000-000000000003` (https://prccloudnine.com/#contacts)
+  - Miami Flowers: `miamiflowers-pixel-0001-4000-8000-0000-000000000004` (https://miamiflowerstime.com/contact/)
 
 **November 9, 2025 - Complete System Review & Production Verification**
 - **Status**: ✅ PASSED - System 100% Production Ready
