@@ -1,22 +1,42 @@
 # System Status & Incident Reports
 
-## Current Status (November 2025)
+## Current Status (January 2025)
 
 ✅ **Production Ready - 100% Verified**
 - Worker deployed and healthy
-- Database schema up to date
+- Database schema up to date (12 migrations applied)
 - Tracking endpoints processing events successfully
-- Pipedrive integration active with delayed sync
+- Pipedrive integration active with delayed sync (configurable per project)
 - All systems monitoring active
 - **Security Assessment**: PASSED
 - **Code Cleanup**: Completed
 - **Production Logging**: Production-Grade
 - **Error Handling**: Comprehensive with fallbacks
 - **Data Integrity**: executionCtx.waitUntil() properly implemented
-- **Latest Deployment**: Version `65bc1e55-5722-4472-9bff-fcff0bcdcd6b` (November 9, 2025 - 00:18 UTC) - Pipedrive Search Logic Improvements
+- **Latest Changes**: Added 4 new projects with Pipedrive sync disabled (January 27, 2025)
 - **Complete System Review**: PASSED (November 9, 2025)
 
 ### Recent Updates
+
+**January 27, 2025 - New Projects Added & Pipedrive Sync Configuration**
+- ✅ **Added 4 New Projects**: Desaas.io, Blackbowassociates, Cloud Nine, Miami Flowers
+- ✅ **Pipedrive Sync Configuration**: Added project-level `pipedrive_enabled` flag
+- ✅ **Form Data Capture**: Confirmed ALL form fields automatically captured (stored as JSON)
+- ✅ **Database Migration**: Migration 0012_add_new_projects.sql applied successfully
+- ✅ **Tracking Route Update**: Added project configuration check to disable Pipedrive sync per project
+- ✅ **Documentation**: Created NEW_PROJECTS_SETUP.md and FORM_DATA_STORAGE.md
+- **Files Modified**:
+  - `src/routes/tracking.js`: Added project configuration check for pipedrive_enabled flag
+  - `migrations/0012_add_new_projects.sql`: NEW - Adds 4 projects with Pipedrive sync disabled
+  - `docs/NEW_PROJECTS_SETUP.md`: NEW - Installation guide for new projects
+  - `docs/FORM_DATA_STORAGE.md`: NEW - Form data storage architecture documentation
+  - `scripts/add-new-projects-api.js`: NEW - API script for adding projects
+  - `scripts/get-pixel-codes.js`: NEW - Script to retrieve pixel codes
+- **Impact**: 
+  - New projects track data without sending to Pipedrive
+  - PPP project continues to sync to Pipedrive (backward compatible)
+  - All form fields automatically captured and stored as JSON
+  - No breaking changes to existing functionality
 
 **November 9, 2025 - Complete System Review & Production Verification**
 - **Status**: ✅ PASSED - System 100% Production Ready

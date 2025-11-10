@@ -85,6 +85,29 @@ app.post('/track', validateTrackingRequest, async (c) => {
     }
 
     const finalProjectId = project_id || pixel.project_id;
+    
+    // Get project configuration to check if Pipedrive sync is enabled
+    let projectConfig = null;
+    let pipedriveEnabled = true; // Default to true for backward compatibility
+    if (finalProjectId) {
+      const project = await c.env.DB.prepare(
+        'SELECT configuration FROM projects WHERE id = ? AND active = 1'
+      ).bind(finalProjectId).first();
+      
+      if (project && project.configuration) {
+        try {
+          projectConfig = typeof project.configuration === 'string' 
+            ? JSON.parse(project.configuration) 
+            : project.configuration;
+          pipedriveEnabled = projectConfig.pipedrive_enabled !== false; // Default true, only disable if explicitly false
+        } catch (parseError) {
+          await logger.warn('Failed to parse project configuration', {
+            project_id: finalProjectId,
+            error: parseError.message
+          });
+        }
+      }
+    }
 
     // Extract form data from URL or provided data
     let finalFormData = form_data;
@@ -191,11 +214,15 @@ app.post('/track', validateTrackingRequest, async (c) => {
     // Parse form data for newsletter signup (works for both actual forms and URL params)
     const formDataParsed = finalFormData ? parseFormData(finalFormData) : null;
     
-    // Send to Pipedrive ONLY if actual form submission (not URL parameters)
-    if (finalEventType === 'form_submit' && formDataParsed) {
+    // Send to Pipedrive ONLY if:
+    // 1. Actual form submission (not URL parameters)
+    // 2. Project has Pipedrive sync enabled (default: true for backward compatibility)
+    if (finalEventType === 'form_submit' && formDataParsed && pipedriveEnabled) {
       await logger.info('Form submission detected - preparing Pipedrive sync', {
         component: 'tracking-route',
         event_id: finalEventId,
+        project_id: finalProjectId,
+        pipedrive_enabled: pipedriveEnabled,
         has_form_data: !!finalFormData,
         form_data_keys: Object.keys(formDataParsed).join(', ')
       });
@@ -272,6 +299,15 @@ app.post('/track', validateTrackingRequest, async (c) => {
           event_id: finalEventId
         });
       }
+    } else if (finalEventType === 'form_submit' && formDataParsed && !pipedriveEnabled) {
+      // Log that Pipedrive sync is disabled for this project
+      await logger.info('Form submission detected but Pipedrive sync disabled for project', {
+        component: 'tracking-route',
+        event_id: finalEventId,
+        project_id: finalProjectId,
+        pipedrive_enabled: false,
+        has_form_data: !!finalFormData
+      });
     }
     
     // Add to newsletter if email exists (works for both actual forms AND URL parameters)

@@ -281,6 +281,30 @@ NEWSLETTER_AUTH_TOKEN = "[Cloudflare Secret]"
   - Pipedrive sync metrics (circuit breaker state, queue depth)
   - System health indicators (cache/database availability, environment)
 
+### Recent Improvements (January 2025)
+
+**New Projects & Pipedrive Sync Configuration (January 27, 2025):**
+- ✅ **Project-Level Pipedrive Sync Control**: Added `pipedrive_enabled` flag in project configuration
+  - Defaults to `true` for backward compatibility (PPP project continues syncing)
+  - Can be set to `false` to disable Pipedrive sync for specific projects
+  - Checked in tracking route before scheduling Pipedrive sync
+- ✅ **New Projects Added**: 4 new projects created (Desaas.io, Blackbowassociates, Cloud Nine, Miami Flowers)
+  - All new projects have `pipedrive_enabled: false`
+  - Data stored in database only, not sent to Pipedrive
+  - Full tracking data collection (UTM, visitor, device, location, form data)
+- ✅ **Form Data Storage**: Confirmed all form fields automatically captured and stored as JSON
+  - Form data stored in `form_data` column as JSON string
+  - Pixel.js v2.4.0 captures ALL form fields automatically
+  - No field list configuration needed
+  - Field name normalization (hyphens → underscores, case-insensitive)
+- ✅ **Documentation**: Created comprehensive guides for new projects and form data storage
+  - `docs/NEW_PROJECTS_SETUP.md`: Installation guide with pixel codes
+  - `docs/FORM_DATA_STORAGE.md`: Architecture documentation for form data storage
+
+**Files Modified:**
+- `src/routes/tracking.js`: Added project configuration check for `pipedrive_enabled` flag
+- `migrations/0012_add_new_projects.sql`: NEW - Adds 4 projects with proper configuration
+
 ### Recent Improvements (November 2025)
 
 **Critical Bug Fixes (November 7, 2025):**
@@ -428,7 +452,7 @@ NEWSLETTER_AUTH_TOKEN = "[Cloudflare Secret]"
 
 ### Status
 
-✅ **Production Ready** (November 2025)
+✅ **Production Ready** (January 2025)
 - All refactoring complete
 - Pipedrive integration active with timeout/retry protection and circuit breaker
 - Form data capture: ALL form fields (text inputs, textareas, selects, checkboxes, dates) with email required for Pipedrive sync
